@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.log
+.env
+.DS_Store
+# Player profiles. Written beside the server by `npm start`, and at the repo
+# root by anyone who runs `node server/dist/index.js` from here.
+server/data/
+data/
+# The client bundle the deploy workflow packages for the Bloxity Hosting upload.
+client-dist.zip

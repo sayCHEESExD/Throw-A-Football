@@ -1,0 +1,23 @@
+{
+  "name": "throw-football",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Throw Football - a multiplayer quarterback football game for Bloxity (Three.js + Colyseus)",
+  "type": "module",
+  "engines": { "node": ">=20.11.0" },
+  "workspaces": ["shared", "server", "client"],
+  "scripts": {
+    "build:shared": "npm run build --workspace @mctf/shared",
+    "dev": "npm run build:shared && concurrently -n server,client -c magenta,cyan \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "npm run dev --workspace @mctf/server",
+    "dev:client": "npm run dev --workspace @mctf/client",
+    "build": "npm run build:shared && npm run build --workspace @mctf/server && npm run build --workspace @mctf/client",
+    "build:client": "npm run build:shared && npm run build --workspace @mctf/client",
+    "build:server": "npm run build:shared && npm run build --workspace @mctf/server",
+    "typecheck": "npm run build:shared && npm run typecheck --workspaces --if-present",
+    "start": "npm run start --workspace @mctf/server",
+    "size:client": "node scripts/build-size.mjs"
+  },
+  "devDependencies": { "concurrently": "^9.2.1", "typescript": "^5.9.3" },
+  "overrides": { "@colyseus/core": "0.16.24" }
+}
