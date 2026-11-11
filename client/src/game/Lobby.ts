@@ -128,6 +128,14 @@ export class Lobby {
   private time = 0;
   private throwAnim = 0;
   private active = false;
+  /** The ball the camera is chasing after your throw (null: over the shoulder). */
+  private followBall: Ball | null = null;
+  /** 0 = over the shoulder, 1 = chasing the ball. */
+  private followW = 0;
+  private followHold = 0;
+  private readonly followDir = new Vector3(0, 0, 1);
+  private readonly followPos = new Vector3();
+  private readonly followLook = new Vector3();
 
   constructor(private readonly ctx: LobbyContext) {
     const mat = new MeshStandardMaterial({ color: 0xffc83a, emissive: 0x6a4300, roughness: 0.35, metalness: 0.4 });
@@ -290,7 +298,7 @@ export class Lobby {
     const from = v1.clone();
     thrower.aimFromCenter(camera, from, stats, this.targets);
     thrower.update(dt, from, stats);
-    this.ctx.hud.setReticle(!this.ctx.hud.panelOpen, thrower.charging);
+    this.ctx.hud.setReticle(!this.ctx.hud.panelOpen && !this.chasing, thrower.charging);
     if (thrower.charging) this.ctx.hud.meter(thrower.power, thrower.idealPower(from, stats), stats.perfectBand);
     else this.ctx.hud.meter(null);
     if (input.takePrimary() && !this.ctx.hud.panelOpen) {
@@ -337,6 +345,11 @@ export class Lobby {
     const fb = this.spare(true);
     fb.ball.setTrailColor(ev.perfect ? 0xffe23a : ballTrailColor);
     fb.ball.launch(ev.from, ev.velocity);
+    this.followBall = fb.ball;
+    this.followHold = 0;
+    this.followDir.set(ev.velocity.x, 0, ev.velocity.z);
+    if (this.followDir.lengthSq() < 1e-4) this.followDir.set(Math.sin(this.camYaw), 0, Math.cos(this.camYaw));
+    this.followDir.normalize();
     sound.throwBall();
     this.ctx.sendThrow({ ox: ev.from.x, oy: ev.from.y, oz: ev.from.z, vx: ev.velocity.x, vy: ev.velocity.y, vz: ev.velocity.z });
     if (ev.perfect) this.ctx.labels.float(v1.copy(ev.from).setY(ev.from.y + 1.4), 'PERFECT!', this.ctx.camera, '#ffe23a');
@@ -501,10 +514,40 @@ export class Lobby {
     const cam = this.ctx.camera;
     const look = new Vector3();
     this.cameraGoal(v1, look);
-    // Position follows smoothly; the view direction is exact so the reticle never drifts.
-    cam.position.lerp(v1, 1 - Math.exp(-18 * dt));
     const dir = v2.set(Math.sin(this.camYaw) * Math.cos(this.camPitch), -Math.sin(this.camPitch), Math.cos(this.camYaw) * Math.cos(this.camPitch));
-    cam.lookAt(look.addScaledVector(dir, 20));
+    look.addScaledVector(dir, 20);
+
+    // After your throw the camera chases the ball, holds a moment once it lands,
+    // then eases back. Starting the next throw ends the chase at once.
+    const b = this.followBall;
+    if (b) {
+      if (!b.inFlight || this.ctx.thrower.charging || this.ctx.hud.panelOpen) this.followBall = null;
+      else if (b.grounded && (this.followHold += dt) > 0.8) this.followBall = null;
+    }
+    const chasing = this.followBall !== null;
+    this.followW += ((chasing ? 1 : 0) - this.followW) * (1 - Math.exp(-(chasing ? 5 : 9) * dt));
+    if (this.followW < 0.005) {
+      this.followW = 0;
+      // Position follows smoothly; the view direction is exact so the reticle never drifts.
+      cam.position.lerp(v1, 1 - Math.exp(-18 * dt));
+      cam.lookAt(look);
+      return;
+    }
+    if (b && chasing) {
+      if (b.velocity.x * b.velocity.x + b.velocity.z * b.velocity.z > 4) this.followDir.set(b.velocity.x, 0, b.velocity.z).normalize();
+      this.followPos.copy(b.position).addScaledVector(this.followDir, -7.5);
+      this.followPos.y = Math.max(1.2, b.position.y + 2.6);
+      this.followLook.copy(b.position).addScaledVector(this.followDir, 3);
+    }
+    const w = this.followW * this.followW * (3 - 2 * this.followW);
+    cam.position.lerp(v1, 1 - Math.exp(-18 * dt));
+    cam.position.lerp(this.followPos, w);
+    cam.lookAt(look.lerp(this.followLook, w));
+  }
+
+  /** True while the camera is (mostly) chasing a thrown ball: the reticle hides. */
+  get chasing(): boolean {
+    return this.followW > 0.4;
   }
 }
 

@@ -62,7 +62,7 @@ export interface Profile {
   migratedTo?: string;
 }
 
-export const START_CASH = 0;
+export const START_CASH = 25;
 
 const starterCards = (): Record<number, number> => Object.fromEntries(STARTER_CARDS.map((id) => [id, 1]));
 

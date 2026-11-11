@@ -5,6 +5,10 @@ import { BALL_GRAVITY } from '../world/Ball.js';
 /** Height a receiver catches the ball at. */
 export const CATCH_HEIGHT = 1.9;
 const METER_PERIOD = 1.25;
+/** The share of full speed a release at the very bottom of the meter still has. */
+const MIN_POWER = 0.6;
+/** Launch angle of the longest throw (a touch under 45°, released from shoulder height). */
+const MAX_RANGE_ANGLE = 0.72;
 const ray = new Raycaster();
 const CENTER = new Vector2(0, 0);
 const hit = new Vector3();
@@ -51,6 +55,8 @@ export class Thrower {
 
   /** Unit launch direction: from the hand along the reticle's 3D line. */
   readonly dir = new Vector3(0, 0, 1);
+  /** True when the reticle is on something (a ring, a player, the grass), false for the sky. */
+  private onTarget = false;
 
   /**
    * Cast the ray through the centre of the screen and find what it is on:
@@ -72,8 +78,10 @@ export class Thrower {
         this.aim.copy(t.center);
       }
     }
+    this.onTarget = best !== Infinity;
     if (best === Infinity) {
-      if (r.direction.y < -1e-4) r.at((GROUND_Y - r.origin.y) / r.direction.y, this.aim);
+      this.onTarget = r.direction.y < -1e-4;
+      if (this.onTarget) r.at((GROUND_Y - r.origin.y) / r.direction.y, this.aim);
       // Sky: a far point on the ray, so the direction is the camera's own.
       else r.at(FAR, this.aim);
     }
@@ -111,20 +119,44 @@ export class Thrower {
 
   /** Full-strength ball speed (Throw Strength raises it). */
   static maxSpeed(stats: ArmStats): number {
-    return stats.speed * 1.4;
+    return stats.speed;
   }
 
   /**
-   * Let it go: straight along the reticle's 3D direction. The meter is the
-   * speed and nothing else; gravity bends the ball from there. A PERFECT
-   * release (top of the meter) is full speed with no wobble.
+   * Turn `d` into the low-arc launch that lands a ball thrown at `speed` from
+   * `from` on the aim point. Out of reach, it is the longest throw toward it.
+   */
+  private lift(d: Vector3, from: Vector3, speed: number): void {
+    const dx = this.aim.x - from.x;
+    const dz = this.aim.z - from.z;
+    const flat = Math.hypot(dx, dz);
+    if (flat < 0.5) return;
+    const dy = this.aim.y - from.y;
+    const g = BALL_GRAVITY;
+    const v2 = speed * speed;
+    const disc = v2 * v2 - g * (g * flat * flat + 2 * dy * v2);
+    const angle = disc < 0 ? Math.max(Math.asin(Math.max(-1, Math.min(1, d.y))), MAX_RANGE_ANGLE) : Math.atan((v2 - Math.sqrt(disc)) / (g * flat));
+    d.set((dx / flat) * Math.cos(angle), Math.sin(angle), (dz / flat) * Math.cos(angle));
+  }
+
+  /**
+   * Let it go toward the reticle. The meter sets the speed (a weak release
+   * still keeps MIN_POWER of full strength) and gravity bends the ball from
+   * there. When the reticle is on something (a ring, a player, the grass) the
+   * launch is raised just enough that a FULL-strength ball lands on it, so a
+   * strong release hits and a soft one falls short naturally; looking at the
+   * sky throws exactly along the reticle line. A PERFECT release (the top
+   * band) is full speed with no wobble.
    */
   release(from: Vector3, stats: ArmStats, band: number): ThrowEvent {
     this.charging = false;
     const p = this.power;
     const perfect = p >= 1 - band * 2;
-    const speed = Thrower.maxSpeed(stats) * (perfect ? 1 : Math.max(0.1, p));
+    const speed = Thrower.maxSpeed(stats) * (perfect ? 1 : MIN_POWER + (1 - MIN_POWER) * p);
     const d = tmp.copy(this.dir);
+    // Aim high enough for a full-strength ball to land on what the reticle is on,
+    // the way a real thrower does; a weaker release then dips and falls short.
+    if (this.onTarget) this.lift(d, from, Thrower.maxSpeed(stats));
     if (!perfect) {
       // A little wobble off the line, smaller with Accuracy.
       const yaw = ((Math.random() * 2 - 1) * stats.spread * Math.PI) / 180;

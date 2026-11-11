@@ -2,12 +2,14 @@ import musicUrl from '../../../assets/audio/music.mp3';
 import cheerUrl from '../../../assets/audio/crowd_cheer.mp3';
 import walkUrl from '../../../assets/audio/walk.mp3';
 import jumpUrl from '../../../assets/audio/jump.mp3';
+import throwUrl from '../../../assets/audio/throw-ball.mp3';
 
-type Clip = 'cheer' | 'walk' | 'jump';
+type Clip = 'cheer' | 'walk' | 'jump' | 'throw';
 
 /**
- * Music, the bundled clips, and small synthesized effects (whistle, throw,
- * catch, tackle, ring, cash) so they cost no download.
+ * Music, the bundled clips (the throw and catch use the recorded
+ * throw-ball clip), and small synthesized effects (whistle, hike, tackle,
+ * ring, cash) so they cost no download.
  */
 export class Sound {
   private ctx: AudioContext | null = null;
@@ -48,7 +50,7 @@ export class Sound {
     this.sfx = this.ctx.createGain();
     this.sfx.connect(this.master);
     this.applyLevels();
-    for (const [key, url] of [['music', musicUrl], ['cheer', cheerUrl], ['walk', walkUrl], ['jump', jumpUrl]] as const) {
+    for (const [key, url] of [['music', musicUrl], ['cheer', cheerUrl], ['walk', walkUrl], ['jump', jumpUrl], ['throw', throwUrl]] as const) {
       void fetch(url)
         .then((r) => r.arrayBuffer())
         .then((b) => this.ctx!.decodeAudioData(b))
@@ -191,12 +193,11 @@ export class Sound {
   }
 
   throwBall(): void {
-    this.noise(0.35, 0.5, 1600, 0.8);
+    this.play('throw', 1);
   }
 
   catchBall(): void {
-    this.noise(0.08, 0.9, 300, 1.5);
-    this.tone(160, 0.12, 'sine', 0.3);
+    this.play('throw', 0.8);
   }
 
   tackle(): void {

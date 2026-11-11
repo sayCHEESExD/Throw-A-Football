@@ -148,6 +148,8 @@ export class Match {
   private firstPlay = true;
   /** Look direction in the pocket: yaw 0 = straight downfield. */
   private aimYaw = 0;
+  /** Flat direction the flight camera chases the ball along. */
+  private readonly chaseDir = new Vector3(0, 0, 1);
   private aimPitch = 0.16;
   private offenseKey = '';
   private rbBoost = 1;
@@ -830,6 +832,8 @@ export class Match {
     ctx.qb.holdingBall = false;
     ctx.qb.setState('throw');
     ctx.ball.launch(ev.from, ev.velocity);
+    const flatV = Math.hypot(ev.velocity.x, ev.velocity.z);
+    if (flatV > 0.1) this.chaseDir.set(ev.velocity.x / flatV, 0, ev.velocity.z / flatV);
     ctx.ball.setTrailColor(ev.perfect ? 0xffe23a : ballTrailColor);
     ctx.hud.meter(null);
     ctx.hud.setReticle(false, false);
@@ -1191,8 +1195,15 @@ export class Match {
       camTarget.set(ex - fx * cp * 8.5, Math.max(0.5, ey + Math.sin(this.aimPitch) * 8.5), ez - fz * cp * 8.5);
       lookTarget.set(ex + fx * cp * 20, ey - Math.sin(this.aimPitch) * 20, ez + fz * cp * 20);
       if (this.phase === 'flight') {
-        const b = this.ctx.ball.position;
-        lookTarget.lerp(v2.set(b.x, Math.min(b.y, 6), b.z), 0.35);
+        // The camera chases the ball through the air (behind it, a little above).
+        const ball = this.ctx.ball;
+        const vx = ball.velocity.x;
+        const vz = ball.velocity.z;
+        const flat = Math.hypot(vx, vz);
+        if (flat > 2) this.chaseDir.set(vx / flat, 0, vz / flat);
+        const b = ball.position;
+        camTarget.set(b.x - this.chaseDir.x * 8, Math.max(1.4, b.y + 2.8), b.z - this.chaseDir.z * 8);
+        lookTarget.set(b.x + this.chaseDir.x * 3, b.y, b.z + this.chaseDir.z * 3);
       }
     } else {
       const c = this.carrier;
@@ -1227,7 +1238,7 @@ export class Match {
       cam.lookAt(this.lookAt);
       return;
     }
-    const rate = this.phase === 'presnap' ? 3.2 : mode === 'carry' ? 5 : 6;
+    const rate = this.phase === 'presnap' ? 3.2 : this.phase === 'flight' ? 7 : mode === 'carry' ? 5 : 6;
     const k = 1 - Math.exp(-rate * dt);
     cam.position.lerp(camTarget, k);
     this.lookAt.lerp(lookTarget, k);

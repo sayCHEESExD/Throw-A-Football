@@ -455,7 +455,8 @@ export class Game {
     this.hud.close();
     this.me.emoteId = '';
     this.me.setState('free');
-    sound.music(false);
+    // The music keeps playing through matches.
+    sound.music(true);
     sound.steps(0);
     for (const r of this.remotes.values()) {
       r.avatar.root.visible = false;

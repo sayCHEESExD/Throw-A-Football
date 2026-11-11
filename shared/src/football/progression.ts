@@ -13,9 +13,9 @@ export interface UpgradeDef {
 }
 
 export const UPGRADES: readonly UpgradeDef[] = [
-  { id: 'accuracy', name: 'Accuracy', blurb: 'Tighter spirals and a wider PERFECT zone', maxRank: 100, baseCost: 110, growth: 1.13 },
-  { id: 'strength', name: 'Throw Strength', blurb: 'Throw farther and faster', maxRank: 100, baseCost: 170, growth: 1.14 },
-  { id: 'money', name: 'Money Boost', blurb: 'More cash for everything', maxRank: 100, baseCost: 200, growth: 1.16 },
+  { id: 'accuracy', name: 'Accuracy', blurb: 'Tighter spirals and a wider PERFECT zone', maxRank: 100, baseCost: 15, growth: 1.15 },
+  { id: 'strength', name: 'Throw Strength', blurb: 'Throw farther and faster', maxRank: 100, baseCost: 20, growth: 1.15 },
+  { id: 'money', name: 'Money Boost', blurb: 'More cash for everything', maxRank: 100, baseCost: 30, growth: 1.17 },
 ];
 
 export type UpgradeRanks = Record<UpgradeId, number>;
@@ -61,7 +61,7 @@ export const upgradeCostFor = (id: UpgradeId, rank: number, count: number): numb
 export interface ArmStats {
   /** Max throw distance, world units. */
   readonly range: number;
-  /** Horizontal ball speed, units/s. */
+  /** Full-strength ball speed, units/s. */
   readonly speed: number;
   /** Max aim error, degrees. */
   readonly spread: number;
@@ -74,10 +74,10 @@ export interface ArmStats {
 }
 
 export const armStats = (r: UpgradeRanks, yard: number, pocketBonus = 0): ArmStats => ({
-  range: (36 + 0.6 * r.strength) * yard,
-  speed: 30 + 0.35 * r.strength,
+  range: (60 + 1.0 * r.strength) * yard,
+  speed: 52 + 0.48 * r.strength,
   spread: 3.2 * Math.pow(0.975, r.accuracy),
-  perfectBand: Math.min(0.2, 0.055 + 0.0015 * r.accuracy),
+  perfectBand: Math.min(0.2, 0.09 + 0.0011 * r.accuracy),
   pocketBonus,
   money: 1 + 0.1 * r.money,
 });
@@ -89,7 +89,7 @@ export const COMPLETION_BONUS = 10;
 export const PERFECT_BONUS = 6;
 export const touchdownBonus = (stage: number): number => 150 + 60 * (stage - 1);
 export const touchdownFans = (stage: number): number => 25 + 5 * stage;
-export const ringReward = (streak: number): number => 2 * Math.min(streak, 25);
+export const ringReward = (streak: number): number => 3 + 2 * Math.min(streak, 25);
 
 /** Fans needed to reach the next level from `level`. */
 export const fansForLevel = (level: number): number => Math.round(60 * Math.pow(level, 1.4));
