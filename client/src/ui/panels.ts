@@ -579,7 +579,7 @@ const settingsPanel = (_p: ProfileMessage, a: HudActions, ui: PanelUi): Built =>
     ${toggle('hints', 'Show control hints')}
     <div class="set-row"><span class="t">Leaderboard</span><button class="btn cyan t lb"><img src="${iconTrophy}" alt=""> Open</button></div>
     <div class="set-row"><span class="t">Tutorial</span><button class="btn t replay">Replay tutorial</button></div>
-    <p class="hint-line">${ui.touch ? 'Drag the right side to look around. Tap THROW twice to throw.' : 'Click the game to lock the mouse. Press Ctrl or C to free it and click buttons.'}</p>
+    <p class="hint-line">${ui.touch ? 'Drag the right side to look around. Tap THROW twice to throw.' : 'Click the game to lock the mouse. Press Ctrl or C to free it and click buttons. Press Q (or the lock button) to play without mouse lock: then right-drag to look.'}</p>
   </div>`);
   $$(body, '[data-toggle]').forEach((b) =>
     b.addEventListener('click', () => {

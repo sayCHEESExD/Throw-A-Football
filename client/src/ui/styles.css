@@ -71,6 +71,17 @@ body:not(.touch) .tut-hk { display: inline-block; }
 /* ---------- reticle ---------- */
 .reticle { position: fixed; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.95); box-shadow: 0 0 0 1px rgba(0,0,0,0.45), inset 0 0 0 1px rgba(0,0,0,0.35); pointer-events: none !important; z-index: 6; }
 .reticle i { position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px; border-radius: 50%; background: #fff; }
+.lock-toggle { position: absolute; right: calc(12px + var(--safe-r)); bottom: calc(10px + 52px * var(--s) + var(--safe-b) + var(--res-br, 0px)); transform: scale(var(--s)); transform-origin: right bottom; width: 46px; height: 46px; border-radius: 12px; border: 2px solid rgba(255,255,255,0.85); background: rgba(20,28,60,0.72); cursor: pointer; padding: 0; z-index: 7; display: grid; place-items: center; box-shadow: 0 3px 0 rgba(0,0,0,0.35); }
+.lock-toggle svg { width: 26px; height: 26px; fill: none; stroke: #fff; stroke-width: 2.4; stroke-linecap: round; }
+.lock-toggle svg rect { fill: rgba(255,255,255,0.18); }
+.lock-toggle .shackle { transform: translate(5px, -2px) rotate(18deg); transform-origin: 16px 11px; transition: transform 0.15s; }
+.lock-toggle.on { background: #2f9bff; }
+.lock-toggle.on svg rect { fill: #fff; }
+.lock-toggle.on .shackle { transform: none; }
+.lock-toggle kbd { position: absolute; right: -6px; top: -8px; font-family: inherit; font-size: 11px; background: rgba(255,255,255,0.95); color: var(--ink); border-radius: 5px; padding: 0 5px; -webkit-text-stroke: 0; }
+body.touch .lock-toggle, body.no-hints .lock-toggle kbd { display: none; }
+.lock-pill { position: fixed; left: 50%; top: calc(50% + 34px); transform: translateX(-50%) scale(var(--s)); transform-origin: center top; background: rgba(10,16,40,0.78); border: 2px solid rgba(255,255,255,0.85); border-radius: 12px; padding: 6px 16px; font-size: 18px; text-align: center; pointer-events: none !important; z-index: 6; }
+.lock-pill small { display: block; font-size: 11px; opacity: 0.85; }
 .reticle.charging { border-color: #ffe23a; transform: scale(1.25); transition: transform 0.1s; }
 
 /* ---------- lobby: top ---------- */

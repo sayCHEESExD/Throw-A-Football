@@ -1,15 +1,24 @@
 /**
  * Keyboard, mouse and touch, reduced to what the game asks for.
  *
- * Desktop (shift-lock style): click the game to lock the mouse; moving it
- * turns the camera and the centre reticle is where you throw. Left click
- * hikes / throws (once to start the power meter, again to release). Ctrl or
- * C frees the mouse to click buttons. WASD moves, Shift sprints, Space
- * jumps, the wheel zooms. Without pointer lock, right-drag turns instead.
+ * Desktop, SHIFT-LOCK ON (the default): click the game to lock the mouse;
+ * moving it turns the camera and the centre reticle is where you throw. The
+ * click that captures the mouse is never a throw. Left click then hikes /
+ * throws (once to start the power meter, again to release). Ctrl, C or Esc
+ * frees the mouse for a moment; the next click on the game captures it again.
+ *
+ * SHIFT-LOCK OFF (Q or the lock button): the mouse stays free, left click
+ * throws and right-drag turns the camera. If the browser keeps refusing the
+ * lock (an embed without pointer-lock permission), the game switches to this
+ * itself and says so. WASD moves, Shift sprints, Space jumps, the wheel zooms.
  *
  * Touch: a floating joystick on the left half; dragging on the right half
  * turns the camera; on-screen buttons drive throw / hike / jump / sprint.
  */
+const SHIFT_LOCK_KEY = 'tf.shiftlock';
+/** Browsers refuse a new pointer lock for about this long after one ends. */
+const LOCK_COOLDOWN_MS = 1500;
+
 export class Input {
   readonly touch: boolean;
   /** -1..1 in screen space: x right, y forward. */
@@ -20,9 +29,14 @@ export class Input {
   readonly pointer = { x: 0, y: -0.2, active: false };
   /** False while a menu is open: the mouse stays free. */
   private lockAllowed = true;
-  /** Pointer lock refused or unsupported here: clicks throw directly. */
-  private lockBroken = false;
-  private lockAsked = 0;
+  /** Shift-lock: the mouse is captured to turn the camera (Q toggles it). */
+  private shiftLockOn = true;
+  /** When the lock last ended (browsers refuse a new one for about a second after). */
+  private unlockedAt = 0;
+  /** Lock requests refused in a row, outside that cooldown. */
+  private lockFailures = 0;
+  /** A lock request is waiting for an answer (its refusal is counted once). */
+  private lockPending = false;
   /** Camera turn accumulated since the last read (radians). */
   yawDelta = 0;
   pitchDelta = 0;
@@ -68,13 +82,26 @@ export class Input {
     window.addEventListener('pointermove', (e) => this.moveEvt(e));
     window.addEventListener('pointerup', (e) => this.up(e));
     window.addEventListener('pointercancel', (e) => this.up(e));
+    try {
+      this.shiftLockOn = localStorage.getItem(SHIFT_LOCK_KEY) !== 'off';
+    } catch {
+      /* storage blocked: keep the default */
+    }
+    if (typeof canvas.requestPointerLock !== 'function') this.shiftLockOn = false;
     document.addEventListener('pointerlockchange', () => {
-      if (!this.locked) this.dragging = false;
+      this.lockPending = false;
+      if (this.locked) {
+        this.lockFailures = 0;
+      } else {
+        this.dragging = false;
+        this.unlockedAt = performance.now();
+      }
+      // Never carry a click across a lock change: capturing (or losing) the
+      // mouse must not start or release a throw.
+      this.primaryQueued = 0;
       for (const l of this.lockListeners) l(this.locked);
     });
-    document.addEventListener('pointerlockerror', () => {
-      this.lockBroken = true;
-    });
+    document.addEventListener('pointerlockerror', () => this.lockRefused());
     canvas.addEventListener('wheel', (e) => {
       this.zoomDelta += Math.sign(e.deltaY);
       e.preventDefault();
@@ -98,24 +125,66 @@ export class Input {
     if (!allowed && this.locked) document.exitPointerLock();
   }
 
-  /** Free the mouse (Ctrl / C). */
+  /** Free the mouse for now (Ctrl / C); the next click on the game captures it again. */
   unlock(): void {
     if (this.locked) document.exitPointerLock();
   }
 
+  /** Shift-lock on: clicks capture the mouse. Off: the mouse stays free and clicks throw. */
+  get shiftLock(): boolean {
+    return this.shiftLockOn && !this.touch;
+  }
+
+  onShiftLockChange(listener: (on: boolean, reason: 'toggle' | 'refused') => void): void {
+    this.shiftLockListeners.push(listener);
+  }
+
+  private readonly shiftLockListeners: Array<(on: boolean, reason: 'toggle' | 'refused') => void> = [];
+
+  /** Q or the lock button. Turning it on captures the mouse straight away. */
+  toggleShiftLock(): void {
+    this.setShiftLock(!this.shiftLockOn, 'toggle');
+    if (this.shiftLockOn) this.requestLock();
+  }
+
+  private setShiftLock(on: boolean, reason: 'toggle' | 'refused'): void {
+    if (this.touch || on === this.shiftLockOn) return;
+    this.shiftLockOn = on;
+    this.lockFailures = 0;
+    this.primaryQueued = 0;
+    if (!on && this.locked) document.exitPointerLock();
+    try {
+      localStorage.setItem(SHIFT_LOCK_KEY, on ? 'on' : 'off');
+    } catch {
+      /* storage blocked: it lasts for this visit */
+    }
+    for (const l of this.shiftLockListeners) l(on, reason);
+  }
+
   private requestLock(): void {
-    if (this.touch || this.lockBroken || !this.lockAllowed || this.locked) return;
-    this.lockAsked = performance.now();
+    if (this.touch || !this.shiftLockOn || !this.lockAllowed || this.locked) return;
+    this.lockPending = true;
     try {
       const r = this.canvas.requestPointerLock() as unknown as Promise<void> | undefined;
-      if (r && typeof r.catch === 'function') {
-        r.catch(() => {
-          this.lockBroken = true;
-        });
-      }
+      if (r && typeof r.catch === 'function') r.catch(() => this.lockRefused());
     } catch {
-      this.lockBroken = true;
+      this.lockRefused();
     }
+  }
+
+  /**
+   * The browser said no. Right after a lock ends it always does (about a
+   * second), so that just means "click again". Refused three times in a row
+   * outside that window, pointer lock is not available here: shift-lock turns
+   * itself off so clicks throw and right-drag turns (Q turns it back on).
+   */
+  private lockRefused(): void {
+    // Browsers report one refusal twice (the event and the promise).
+    if (!this.lockPending) return;
+    this.lockPending = false;
+    if (performance.now() - this.unlockedAt < LOCK_COOLDOWN_MS) return;
+    this.lockFailures += 1;
+    if (this.lockFailures >= 3) this.setShiftLock(false, 'refused');
   }
 
   setSensitivity(scale: number): void {
@@ -187,6 +256,7 @@ export class Input {
     if (!e.repeat) {
       if (e.code === 'Space') this.jumpQueued = true;
       if (e.code === 'ControlLeft' || e.code === 'ControlRight' || e.code === 'KeyC') this.unlock();
+      if (e.code === 'KeyQ' && !this.touch && this.lockAllowed) this.toggleShiftLock();
       for (const l of this.listeners) l(e.code);
     }
     this.keys.add(e.code);
@@ -222,21 +292,20 @@ export class Input {
     }
     if (e.button === 2) {
       if (!this.locked) {
+        e.preventDefault();
         this.dragging = true;
         this.lastX = e.clientX;
         this.lastY = e.clientY;
       }
     } else if (e.button === 0) {
-      if (this.locked || this.lockBroken || !this.lockAllowed) {
-        // A canvas click while a menu is open does nothing; otherwise it throws.
-        if (this.locked || this.lockBroken) this.pressPrimary();
+      // A canvas click while a menu is open does nothing.
+      if (!this.lockAllowed) return;
+      if (this.locked || !this.shiftLockOn) {
+        this.pressPrimary();
       } else {
-        // The first click captures the mouse (it is not a throw).
+        // Shift-lock on and the mouse is free: this click only captures it.
+        // It is never a throw, however many times it takes.
         this.requestLock();
-        // Browsers that silently ignore the request: fall back after a moment.
-        setTimeout(() => {
-          if (!this.locked && performance.now() - this.lockAsked > 400 && this.lockAllowed) this.lockBroken = true;
-        }, 500);
       }
     }
   }

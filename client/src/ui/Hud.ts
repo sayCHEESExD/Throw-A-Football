@@ -204,7 +204,7 @@ export class Hud {
       <div class="mults"><span class="cm t">x1.00 Cards</span><span class="rm t">x1.0 Rebirth</span></div>
       <div class="stage-bar" data-open="teams"><span class="st t">Stage 1</span><span class="vs t">Rookie League vs ...</span>
         <div class="next-opp"><div class="no-h t">NEXT OPPONENT</div><div class="no-n t"></div><div class="no-s"></div><div class="no-w t"></div></div></div>
-      <div class="hint t">${this.touch ? '' : 'Move <kbd>WASD</kbd> Throw <kbd>Click x2</kbd><br>Free mouse <kbd>Ctrl</kbd> / <kbd>C</kbd> Jump <kbd>Space</kbd>'}</div>
+      <div class="hint t">${this.touch ? '' : 'Move <kbd>WASD</kbd> Throw <kbd>Click x2</kbd> Jump <kbd>Space</kbd><br>Free mouse <kbd>Ctrl</kbd> / <kbd>C</kbd> Mouse lock <kbd>Q</kbd>'}</div>
     </div>`);
 
     this.match = html(`<div class="hud match-hud hidden">
@@ -217,7 +217,7 @@ export class Hud {
       <div class="meter hidden"><div class="band"></div><div class="fill"></div></div>
       <div class="meter-label t hidden">POWER</div>
       <div class="banner t"><span class="st">Stage 1</span><span class="vs">Rookie League vs ...</span></div>
-      <div class="hint t">${this.touch ? '' : 'Hike <kbd>Click</kbd><br>Quit <kbd>Backspace</kbd>'}</div>
+      <div class="hint t">${this.touch ? '' : 'Hike <kbd>Click</kbd> Mouse lock <kbd>Q</kbd><br>Quit <kbd>Backspace</kbd>'}</div>
     </div>`);
 
     const cash = html(`<div class="cash t"><img src="${iconCash}" alt=""><span>$0</span></div>`);
@@ -228,6 +228,18 @@ export class Hud {
       <button class="btn t" data-t="sprint">RUN</button>
     </div>`);
     this.root.append(this.lobby, this.match, cash, this.reticle, html(`<div class="play-done"></div>`));
+    if (!touch) {
+      // Shift-lock switch (like Roblox's): on = the mouse turns the camera.
+      this.lockBtn = html(`<button class="lock-toggle on" title="Mouse lock (Q)" aria-label="Mouse lock">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2.5"/><path class="shackle" d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><kbd class="t">Q</kbd></button>`);
+      this.lockBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        (e.currentTarget as HTMLElement).blur();
+        this.onShiftLockToggle?.();
+      });
+      this.lockPill = html(`<div class="lock-pill t hidden">CLICK TO PLAY<small>Q: play without mouse lock</small></div>`);
+      this.root.append(this.lockBtn, this.lockPill);
+    }
     if (touch) this.root.appendChild(this.touchPad);
 
     $(this.lobby, '.play-btn').addEventListener('click', () => {
@@ -416,6 +428,26 @@ export class Hud {
   setReticle(visible: boolean, charging: boolean): void {
     this.reticle.classList.toggle('hidden', !visible);
     this.reticle.classList.toggle('charging', charging);
+  }
+
+  private lockBtn: HTMLElement | null = null;
+  private lockPill: HTMLElement | null = null;
+  private onShiftLockToggle: (() => void) | null = null;
+
+  /** The lock button calls this. */
+  setShiftLockToggle(fn: () => void): void {
+    this.onShiftLockToggle = fn;
+  }
+
+  /** Shift-lock on or off (the button's look). */
+  setShiftLock(on: boolean): void {
+    this.lockBtn?.classList.toggle('on', on);
+    if (this.lockBtn) this.lockBtn.title = on ? 'Mouse lock: ON (Q)' : 'Mouse lock: OFF (Q) - right-drag to look';
+  }
+
+  /** The "click to play" pill, while shift-lock is on and the mouse is free. */
+  setLockPill(show: boolean): void {
+    this.lockPill?.classList.toggle('hidden', !show);
   }
 
   /** Pointer-lock state, for the "free your mouse" tip. */

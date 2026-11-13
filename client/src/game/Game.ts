@@ -204,7 +204,22 @@ export class Game {
     );
     this.hud.setBoardSource(() => this.boardRows());
     this.applySettings(this.hud.settings);
-    this.input.onLockChange((locked) => this.hud.setLocked(locked));
+    this.input.onLockChange((locked) => {
+      this.hud.setLocked(locked);
+      // Losing the mouse mid-throw cancels the throw: coming back never fires it.
+      if (!locked && this.thrower?.charging) {
+        this.thrower.cancel();
+        this.hud.meter(null);
+        if (this.mode === 'lobby') this.me.setState('free');
+      }
+    });
+    this.hud.setShiftLock(this.input.shiftLock);
+    this.hud.setShiftLockToggle(() => this.input.toggleShiftLock());
+    this.input.onShiftLockChange((on, reason) => {
+      this.hud.setShiftLock(on);
+      if (reason === 'refused') this.hud.toast('Mouse lock is not available here: right-drag to look, click to throw.');
+      else this.hud.toast(on ? 'Mouse lock ON' : 'Mouse lock OFF: right-drag to look');
+    });
 
     const scene = this.engine.scene;
     this.stadium = new Stadium(scene, this.engine.isLow);
@@ -488,6 +503,7 @@ export class Game {
     this.ads.set(this.adScreen());
     // A menu frees the mouse; closing it lets the next click capture it again.
     this.input.setLockAllowed(!this.hud.panelOpen);
+    this.hud.setLockPill(this.input.shiftLock && !this.input.locked && !this.hud.panelOpen && !!this.room);
     this.hud.frame();
     if (this.mode === 'lobby') {
       this.lobby.update(dt);

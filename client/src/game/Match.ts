@@ -35,7 +35,7 @@ import {
 } from '@mctf/shared';
 import { NpcBody, type NpcPose } from '../actors/NpcBody.js';
 import type { Avatar } from '../actors/Avatar.js';
-import { Ball, ballTrailColor } from '../world/Ball.js';
+import { BALL_GRAVITY, Ball, ballTrailColor } from '../world/Ball.js';
 import { Effects } from '../world/Effects.js';
 import { Trail } from '../world/Trail.js';
 import { RouteArrow } from '../world/RouteArrow.js';
@@ -103,7 +103,15 @@ const WR_NUMBERS = [11, 85, 17];
 const CALL_SECONDS = 2.2;
 const PRESNAP_SECONDS = 3;
 const QB_SPEED = 7.5;
+/** How far a defender can reach to break up or pick off a ball. */
 const CATCH_RADIUS = 1.45;
+/** A receiver's catch reach: arms out, a step and a dive (generous on purpose). */
+const WR_CATCH_RADIUS = 2.6;
+/** Ball heights a receiver can catch at: a diving grab off the grass up to a leaping one. */
+const WR_CATCH_LOW = 0.2;
+const WR_CATCH_HIGH = 4.4;
+/** Reticle lock radius around a receiver's chest (bigger than his body: forgiving aim). */
+const RECEIVER_AIM_RADIUS = 2.2;
 const TACKLE_RADIUS = 1.45;
 
 const v1 = new Vector3();
@@ -628,8 +636,9 @@ export class Match {
    */
   private readonly targets: AimTarget[] = [];
   private aimTargets(): AimTarget[] {
-    const list = [...this.receivers, ...this.defense.filter((a) => a.role !== 'dl')];
-    while (this.targets.length < list.length) this.targets.push({ center: new Vector3(), radius: 1.05 });
+    // Only your receivers: the reticle never locks a pass onto a defender.
+    const list = this.receivers.filter((r) => r !== this.carrier);
+    while (this.targets.length < list.length) this.targets.push({ center: new Vector3(), radius: RECEIVER_AIM_RADIUS });
     this.targets.length = list.length;
     list.forEach((a, i) => (this.targets[i] as AimTarget).center.set(a.pos.x, CATCH_HEIGHT - 0.3, a.pos.z));
     return this.targets;
@@ -705,11 +714,12 @@ export class Match {
     for (const r of this.receivers) {
       if (r === this.carrier) continue;
       if (r.goTo) {
-        // Breaking to the ball.
+        // Breaking to the ball, re-reading where it comes down every frame.
+        if (this.phase === 'flight') this.trackBall(r, now);
         const arriveIn = Math.max(0.05, r.goAt - now);
         const dist = Math.hypot(r.goTo.x - r.pos.x, r.goTo.z - r.pos.z);
-        const want = Math.min(r.max * 1.3, dist / arriveIn + 0.5);
-        this.steer(r, r.goTo, want, dt, 40);
+        const want = Math.min(r.max * 1.45, dist / arriveIn + 1.5);
+        this.steer(r, r.goTo, want, dt, 55);
         if (dist < 0.4) r.yaw = Math.atan2(this.qbX - r.pos.x, this.qbZ - r.pos.z);
         const ball = this.ctx.ball.position;
         r.body.setPose(Math.hypot(ball.x - r.pos.x, ball.z - r.pos.z) < 7 ? 'reach' : 'run');
@@ -852,31 +862,61 @@ export class Match {
     const arrive = this.playClock + ev.time;
     let best: Actor | null = null;
     let bestD = Infinity;
+    let second: Actor | null = null;
+    let secondD = Infinity;
     for (const r of this.receivers) {
       // Aiming right at a receiver (not leading him) still works: he comes
       // back to the ball, so measure from where he is now as well.
       const p = this.predict(r, ev.time);
       const d = Math.min(Math.hypot(p.x - L.x, p.z - L.z), Math.hypot(r.pos.x - L.x, r.pos.z - L.z) * 1.15);
       if (d < bestD) {
+        second = best;
+        secondD = bestD;
         bestD = d;
         best = r;
+      } else if (d < secondD) {
+        second = r;
+        secondD = d;
       }
     }
-    if (best && bestD < Math.max(9, best.max * ev.time * 0.75)) {
+    // Receivers read the ball: the closest one (and a second if he is near too)
+    // breaks off his route and keeps tracking the ball all the way in.
+    const reach = (r: Actor): number => Math.max(15, r.max * 1.35 * ev.time + 4);
+    if (best && bestD < reach(best)) {
       best.goTo = new Vector3(L.x, 0, L.z);
       best.goAt = arrive;
+      if (second && secondD < reach(second) * 0.6) {
+        second.goTo = new Vector3(L.x, 0, L.z);
+        second.goAt = arrive;
+      }
     }
     for (const a of this.defense) {
       if (a.role === 'dl') continue;
-      const reach = a.max * Math.max(0, ev.time - this.diff.reaction * 0.8);
+      const reach = a.max * 0.9 * Math.max(0, ev.time - this.diff.reaction * 1.2);
       const d = Math.hypot(a.pos.x - L.x, a.pos.z - L.z);
-      if (d < reach + 2.5 && (a.role === 'safety' ? this.diff.safety : true)) {
+      if (d < reach + 0.8 && (a.role === 'safety' ? this.diff.safety : true)) {
         // They play the receiver's back shoulder, not the spot itself.
         const away = Math.hypot(a.pos.x - L.x, a.pos.z - L.z) || 1;
         a.goTo = new Vector3(L.x + ((a.pos.x - L.x) / away) * 1.7, 0, L.z + ((a.pos.z - L.z) / away) * 1.7);
         a.goAt = arrive;
       }
     }
+  }
+
+  /**
+   * Point a receiver at where the ball in the air now comes down through his
+   * hands (catch height), from its live position and velocity.
+   */
+  private trackBall(r: Actor, now: number): void {
+    const b = this.ctx.ball;
+    if (!r.goTo || b.grounded) return;
+    const g = BALL_GRAVITY;
+    const h = CATCH_HEIGHT - 0.4;
+    const vy = b.velocity.y;
+    const root = vy * vy + 2 * g * (b.position.y - h);
+    const t = root >= 0 ? Math.max(0, (vy + Math.sqrt(root)) / g) : 0;
+    r.goTo.set(b.position.x + b.velocity.x * t, 0, b.position.z + b.velocity.z * t);
+    r.goAt = now + t;
   }
 
   /** Where a receiver will be in `seconds` if he keeps running his route. */
@@ -918,7 +958,7 @@ export class Match {
       // by makes the catch harder (resolveCatch) but only wins it outright
       // when no receiver is in reach.
       let who: Actor | null = null;
-      let wd = CATCH_RADIUS;
+      let wd = WR_CATCH_RADIUS;
       let def: Actor | null = null;
       let dd = CATCH_RADIUS;
       const sx = bp.x - prevBall.x;
@@ -928,9 +968,10 @@ export class Match {
         if (a.role === 'dl' || !a.body.root.visible) continue;
         const k = len2 > 1e-6 ? Math.max(0, Math.min(1, ((a.pos.x - prevBall.x) * sx + (a.pos.z - prevBall.z) * sz) / len2)) : 1;
         const y = prevBall.y + (bp.y - prevBall.y) * k;
-        if (y <= 0.3 || y >= 3.5) continue;
+        const wr = a.role === 'wr';
+        if (wr ? y <= WR_CATCH_LOW || y >= WR_CATCH_HIGH : y <= 0.3 || y >= 3.5) continue;
         const d = Math.hypot(a.pos.x - (prevBall.x + sx * k), a.pos.z - (prevBall.z + sz * k));
-        if (a.role === 'wr' && d < wd) {
+        if (wr && d < wd) {
           wd = d;
           who = a;
         } else if (a.role !== 'wr' && d < dd) {
@@ -972,9 +1013,9 @@ export class Match {
     if (who.role === 'wr') {
       let nearest = Infinity;
       for (const a of this.defense) if (a.role !== 'dl') nearest = Math.min(nearest, Math.hypot(a.pos.x - who.pos.x, a.pos.z - who.pos.z));
-      const contest = nearest < 2.4 ? (1 - nearest / 2.4) * (0.25 + 0.55 * d.ballSkill) : 0;
-      // The card's catch rating decides it; an uncontested ball is easier.
-      const chance = Math.min(0.99, catchChance(who.rating) + 0.12 + (this.perfect ? 0.06 : 0)) - contest;
+      const contest = nearest < 1.8 ? (1 - nearest / 1.8) * (0.08 + 0.22 * d.ballSkill) : 0;
+      // The card's catch rating decides it; an uncontested ball is nearly sure.
+      const chance = Math.min(0.98, catchChance(who.rating) + 0.22 + (this.perfect ? 0.05 : 0)) - contest;
       if (Math.random() < chance) {
         this.carrier = who;
         who.goTo = null;
